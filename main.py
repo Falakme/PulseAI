@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import secrets
 import logging
 import hmac
@@ -59,7 +60,7 @@ RP_ID = "localhost" # or appropriate domain
 RP_NAME = "PulseAI"
 EXPECTED_ORIGIN = "http://localhost:8000" # fallback
 
-app = FastAPI(title="Pulse AI - Auto Tech Lead", lifespan=lifespan)
+app = FastAPI(title="Pulse AI - Auto Tech Lead", lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get('/favicon.svg', include_in_schema=False)
@@ -1036,7 +1037,7 @@ async def leader_trigger_report(request: Request, db: Session = Depends(get_db))
     db.commit()
     db.refresh(report)
     
-    if team.discord_webhook:
+    if team.chat_webhook_url:
         host = request.headers.get("x-forwarded-host", request.url.hostname)
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
         port = request.headers.get("x-forwarded-port", request.url.port)
@@ -1049,6 +1050,50 @@ async def leader_trigger_report(request: Request, db: Session = Depends(get_db))
         await send_chat_alert(team.chat_provider, team.chat_webhook_url, f"📊 **New On-Demand Pulse Report!**\nA Leader ({user.username}) triggered a report.\nView it here: {report_url}")
         
     return form_redirect(f"/report/{report.id}")
+
+@app.get("/docs", response_class=HTMLResponse)
+@app.get("/docs/{page:path}", response_class=HTMLResponse)
+async def view_docs(request: Request, page: str = "index", db: Session = Depends(get_db)):
+    user = login_required(request, db)
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Not authorized to view documentation.")
+    
+    DOCS_DIR = Path("docs")
+    if not DOCS_DIR.exists():
+        DOCS_DIR.mkdir()
+        
+    nav_items = []
+    for file_path in DOCS_DIR.rglob("*.md"):
+        rel_path = file_path.relative_to(DOCS_DIR).with_suffix("")
+        nav_items.append(str(rel_path))
+    nav_items = sorted(nav_items)
+    
+    # Ensure 'index' is always first
+    if "index" in nav_items:
+        nav_items.remove("index")
+        nav_items.insert(0, "index")
+
+    target_file = DOCS_DIR / f"{page}.md"
+    if not target_file.exists() or not target_file.is_file():
+        if page == "index":
+            content = "# Welcome to PulseAI Docs\n\nCreate markdown files in the `docs/` folder to see them appear here automatically! 🚀"
+            if "index" not in nav_items:
+                nav_items.insert(0, "index")
+        else:
+            raise HTTPException(status_code=404, detail="Documentation page not found.")
+    else:
+        content = target_file.read_text(encoding="utf-8")
+    
+    return templates.TemplateResponse(
+        request=request,
+        name="docs.html", 
+        context={
+            "user": user,
+            "content": content,
+            "nav_items": nav_items,
+            "current_page": page
+        }
+    )
 
 @app.get("/report/{report_id}", response_class=HTMLResponse)
 async def view_report(request: Request, report_id: int, db: Session = Depends(get_db)):

@@ -1,6 +1,4 @@
 # Pulse AI
-## Made for the Global Build Challenge (Powered by Notch)
-
 Pulse AI is an automated, AI-driven technical lead agent built for enterprise development teams. It monitors incoming webhooks and activities from Git and project management platforms, passing the data through Google's Gemini LLMs to generate reports.
 
 ## Key Features
